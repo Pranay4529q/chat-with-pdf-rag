@@ -10,6 +10,22 @@ import os
 from dotenv import load_dotenv
 
 load_dotenv()
+"""
+1)similarity search
+2)we use FAISS because it provides fast vector similarity(cosine similarity between embeddings) search for embeddings
+3)Llama 3.1 8B Instant via Groq
+Context window: ~ 8192 tokens (8K)
+
+Max output tokens: typically 2048
+Embedding model: all-MiniLM-L6-v2
+embedding size: 384 dimensions
+so let's consider the 
+chunk_size = 1000
+chunk_overlap = 200
+top_k = 3
+so the context size = 1000*3+200*2 ==2400(within the limit )
+here 200*2 because when we retrieve 3 chunks, the overlaps occur between chunks(2), not inside every chunk.
+"""
 
 
 class RAGEngine:
@@ -93,7 +109,8 @@ class RAGEngine:
         self.agent = initialize_agent(
             tools=tools,
             llm=self.llm,
-            agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,  # Reasoning agent
+            agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION, #This tells LangChain to create an agent that can think and decide which tool to use.It follows ReAct pattern(Reason+Act)
+            
             verbose=True,  # Print reasoning steps
             handle_parsing_errors=True
         )
@@ -119,8 +136,7 @@ class RAGEngine:
             Context from documents:
             {context}
             
-            Question: {question}
-            
+            Question: {question} 
             Use the context if relevant, or use tools if needed.
             """
             
