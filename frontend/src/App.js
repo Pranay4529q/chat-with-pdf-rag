@@ -5,16 +5,14 @@ import "./App.css";
 const API_URL = "http://localhost:8000";
 
 function App() {
-  // ========== STATE MANAGEMENT ==========
-  const [file, setFile] = useState(null); // Selected PDF file
-  const [uploading, setUploading] = useState(false); // Upload in progress
-  const [question, setQuestion] = useState(""); // User's question
-  const [answer, setAnswer] = useState(null); // LLM's answer
-  const [loading, setLoading] = useState(false); // Query in progress
-  const [useTools, setUseTools] = useState(false); // Enable tools
-  const [documents, setDocuments] = useState([]); // Uploaded docs
+  const [file, setFile] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [question, setQuestion] = useState("");
+  const [answer, setAnswer] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [useTools, setUseTools] = useState(false);
+  const [documents, setDocuments] = useState([]);
 
-  // ========== FILE UPLOAD HANDLER ==========
   const handleFileChange = (e) => {
     setFile(e.target.files[0]);
   };
@@ -25,7 +23,6 @@ function App() {
       return;
     }
 
-    // Create FormData to send file
     const formData = new FormData();
     formData.append("file", file);
 
@@ -37,7 +34,7 @@ function App() {
 
       alert(response.data.message);
       setFile(null);
-      fetchDocuments(); // Refresh document list
+      fetchDocuments(); 
     } catch (error) {
       alert("Error uploading file: " + error.response?.data?.detail);
     } finally {
@@ -45,7 +42,7 @@ function App() {
     }
   };
 
-  // ========== QUESTION HANDLER ==========
+
   const handleAsk = async () => {
     if (!question.trim()) {
       alert("Please enter a question");
@@ -69,7 +66,6 @@ function App() {
     }
   };
 
-  // ========== FETCH DOCUMENTS ==========
   const fetchDocuments = async () => {
     try {
       const response = await axios.get(`${API_URL}/documents`);
@@ -79,7 +75,6 @@ function App() {
     }
   };
 
-  // ========== CLEAR ALL ==========
   const handleClear = async () => {
     if (window.confirm("Clear all documents?")) {
       try {
@@ -92,13 +87,9 @@ function App() {
       }
     }
   };
-
-  // Load documents on component mount
   React.useEffect(() => {
     fetchDocuments();
   }, []);
-
-  // ========== RENDER UI ==========
   return (
     <div className="App">
       <header>
