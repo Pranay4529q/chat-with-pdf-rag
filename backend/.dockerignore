@@ -1,0 +1,8 @@
+myenv/
+venv/
+.env
+uploads/
+evaluation/pdfs/
+evaluation/results/
+__pycache__/
+*.pyc
