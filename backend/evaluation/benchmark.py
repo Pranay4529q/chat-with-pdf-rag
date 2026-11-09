@@ -17,6 +17,13 @@ def hit(doc, item):
     return any(page == e["page"] and normalize(e["quote"]) in normalize(doc.page_content)
                for e in item["evidence"])
 
+def page_hit(doc, item):
+    """Correct document and PDF page, even when the gold quote is in another chunk."""
+    if Path(str(doc.metadata.get("source", ""))).name.casefold() != Path(item["document"]).name.casefold():
+        return False
+    page = int(doc.metadata.get("page", -1)) + 1
+    return any(page == evidence["page"] for evidence in item["evidence"])
+
 def scores(ranks, ks=(1, 3, 5)):
     if not ranks:
         raise ValueError("Benchmark is empty")
@@ -56,14 +63,16 @@ def main():
     for item in items:
         retrieved = index.similarity_search(item["question"], k=args.k)
         rank = next((i for i, doc in enumerate(retrieved, 1) if hit(doc, item)), None)
-        records.append({"id": item["id"], "question": item["question"], "first_evidence_rank": rank,
+        page_rank = next((i for i, doc in enumerate(retrieved, 1) if page_hit(doc, item)), None)
+        records.append({"id": item["id"], "question": item["question"], "first_evidence_rank": rank, "first_page_rank": page_rank,
                         "retrieved": [{"source": Path(str(doc.metadata.get("source", ""))).name,
                                        "page": int(doc.metadata.get("page", -1)) + 1,
-                                       "evidence_match": hit(doc, item)} for doc in retrieved]})
+                                       "evidence_match": hit(doc, item), "page_match": page_hit(doc, item)} for doc in retrieved]})
     report = {"configuration": {"embedding": "all-MiniLM-L6-v2", "chunk_size_characters": args.chunk_size,
                                 "chunk_overlap_characters": args.chunk_overlap, "retrieval": "FAISS similarity"},
               "summary": {"questions": len(items), "chunks": len(chunks),
-                          **scores([record["first_evidence_rank"] for record in records], (1, 3, args.k))},
+                          **scores([record["first_evidence_rank"] for record in records], (1, 3, args.k)),
+                          "page_retrieval": scores([record["first_page_rank"] for record in records], (1, 3, args.k))},
               "examples": records}
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2), encoding="utf-8")
