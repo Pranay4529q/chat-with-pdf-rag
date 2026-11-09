@@ -1,109 +1,87 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-import shutil
+"""Authenticated document API with background PDF ingestion."""
 import os
+import tempfile
+from pathlib import Path
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, BackgroundTasks
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
+from auth import register, login, current_user
+from storage import initialize, create_document, list_documents, delete_documents
 from rag_engine import RAGEngine
 
+@asynccontextmanager
+async def lifespan(app):
+    initialize()
+    yield
 
-app = FastAPI(title="Smart Document Q&A API")
+app = FastAPI(title="Smart Document Q&A API", lifespan=lifespan)
+app.add_middleware(CORSMiddleware, allow_origins=os.getenv("CORS_ORIGINS", "http://localhost:3000").split(","),
+                   allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+rag = None
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+def engine():
+    global rag
+    if rag is None:
+        rag = RAGEngine()
+    return rag
 
-rag = RAGEngine()
-
-UPLOAD_DIR = "uploads"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+class Credentials(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+    password: str = Field(min_length=8)
 
 class QuestionRequest(BaseModel):
-    """Model for question requests from frontend"""
-
-    question: str
+    question: str = Field(min_length=1, max_length=2000)
+    history: list[str] = Field(default_factory=list, max_length=10)
     use_tools: bool = False
 
-
-class AnswerResponse(BaseModel):
-    """Model for answer responses to frontend"""
-    answer: str
-    sources: list[str]
-
-
-
 @app.get("/")
-async def root():
-    return {"message": "Smart Document Q&A API is running!"}
+def root():
+    return {"message": "Smart Document Q&A API is running"}
 
+@app.post("/auth/register", status_code=201)
+def signup(body: Credentials):
+    return {"id": register(body.email, body.password)}
 
-@app.post("/upload")
-async def upload_pdf(file: UploadFile = File(...)):
-    """
-    working :- validate file type -> save to uploads -> process with RAG -> adding to vector db
-    """
-    
-    if not file.filename.endswith('.pdf'):
-        raise HTTPException(status_code=400, detail="Only PDF files allowed")
-    
-    file_path = os.path.join(UPLOAD_DIR, file.filename)
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-    
+@app.post("/auth/login")
+def signin(body: Credentials):
+    return {"access_token": login(body.email, body.password), "token_type": "bearer"}
+
+@app.post("/upload", status_code=202)
+async def upload_pdf(background: BackgroundTasks, file: UploadFile = File(...),
+                     owner: str = Depends(current_user)):
+    if not file.filename or Path(file.filename).suffix.lower() != ".pdf":
+        raise HTTPException(400, "Only PDF files allowed")
+    content = await file.read(10 * 1024 * 1024 + 1)
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(413, "PDF exceeds 10 MB")
+    if not content.startswith(b"%PDF-"):
+        raise HTTPException(400, "Invalid PDF header")
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp:
+        temp.write(content)
+        path = temp.name
     try:
-        rag.add_document(file_path)
-        return {
-            "message": f"Successfully uploaded and processed {file.filename}",
-            "filename": file.filename
-        }
-    except Exception as e:
-        # Cleaning up file if processing fails
-        os.remove(file_path)
-        raise HTTPException(status_code=500, detail=f"Error processing PDF: {str(e)}")
-
-
-@app.post("/ask", response_model=AnswerResponse)
-async def ask_question(request: QuestionRequest):
-    """
-    Workflow: convert question to embedding -> search FAISS for similar chunks -> pass chunks + question to LLM 
-    -> LLM generates answer based on context -> optionally use tools if enabled
-    
-    """
-    
-    if not rag.has_documents():
-        raise HTTPException(
-            status_code=400, 
-            detail="No documents uploaded yet. Please upload a PDF first."
-        )
-    
-    try:
-        result = rag.query(request.question, use_tools=request.use_tools)
-        return AnswerResponse(
-            answer=result["answer"],
-            sources=result["sources"]
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error answering question: {str(e)}")
-
+        doc_id = create_document(owner, Path(file.filename).name)
+        background.add_task(engine().ingest, doc_id, owner, path)
+    except Exception:
+        os.remove(path)
+        raise
+    return {"id": doc_id, "filename": Path(file.filename).name, "status": "pending"}
 
 @app.get("/documents")
-async def list_documents():
-    """we will read the uploads folder and return the list of all files to frontend"""
-    files = os.listdir(UPLOAD_DIR)
-    pdf_files = [f for f in files if f.endswith('.pdf')]
-    return {"documents": pdf_files, "count": len(pdf_files)}
+def documents(owner: str = Depends(current_user)):
+    rows = list_documents(owner)
+    return {"documents": [row["filename"] for row in rows], "items": rows, "count": len(rows)}
 
+@app.post("/ask")
+def ask(body: QuestionRequest, owner: str = Depends(current_user)):
+    if body.use_tools:
+        raise HTTPException(400, "Tool execution is disabled for grounded document answers")
+    if not any(row["status"] == "ready" for row in list_documents(owner)):
+        raise HTTPException(400, "No processed documents available yet")
+    return engine().query(owner, body.question, body.history)
 
 @app.delete("/clear")
-async def clear_all():
-    """Clear all documents and reset vector database"""
-    for file in os.listdir(UPLOAD_DIR):
-        os.remove(os.path.join(UPLOAD_DIR, file))
-    
-    # Resetting RAG engine
-    rag.reset()
-    
-    return {"message": "All documents cleared successfully"}
+def clear(owner: str = Depends(current_user)):
+    delete_documents(owner)
+    return {"message": "Your documents were cleared"}
