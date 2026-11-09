@@ -6,6 +6,20 @@ const API_URL = "http://localhost:8000";
 
 function App() {
   const [file, setFile] = useState(null);
+  const [token, setToken] = useState(() => sessionStorage.getItem("rag_token") || "");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [docItems, setDocItems] = useState([]);
+  const authHeaders = { Authorization: `Bearer ${token}` };
+  const authenticate = async (register) => {
+    try {
+      if (register) await axios.post(`${API_URL}/auth/register`, { email, password });
+      const response = await axios.post(`${API_URL}/auth/login`, { email, password });
+      sessionStorage.setItem("rag_token", response.data.access_token);
+      setToken(response.data.access_token);
+      setPassword("");
+    } catch (error) { alert(error.response?.data?.detail || "Authentication failed"); }
+  };
   const [uploading, setUploading] = useState(false);
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState(null);
@@ -29,10 +43,10 @@ function App() {
     setUploading(true);
     try {
       const response = await axios.post(`${API_URL}/upload`, formData, {
-        headers: { "Content-Type": "multipart/form-data" },
+        headers: { ...authHeaders, "Content-Type": "multipart/form-data" },
       });
 
-      alert(response.data.message);
+      alert("Upload accepted. Processing in background; refresh documents to check status.");
       setFile(null);
       fetchDocuments(); 
     } catch (error) {
@@ -56,7 +70,7 @@ function App() {
       const response = await axios.post(`${API_URL}/ask`, {
         question: question,
         use_tools: useTools,
-      });
+      }, { headers: authHeaders });
 
       setAnswer(response.data);
     } catch (error) {
@@ -68,8 +82,9 @@ function App() {
 
   const fetchDocuments = async () => {
     try {
-      const response = await axios.get(`${API_URL}/documents`);
+      const response = await axios.get(`${API_URL}/documents`, { headers: authHeaders });
       setDocuments(response.data.documents);
+      setDocItems(response.data.items || []);
     } catch (error) {
       console.error("Error fetching documents:", error);
     }
@@ -78,8 +93,9 @@ function App() {
   const handleClear = async () => {
     if (window.confirm("Clear all documents?")) {
       try {
-        await axios.delete(`${API_URL}/clear`);
+        await axios.delete(`${API_URL}/clear`, { headers: authHeaders });
         setDocuments([]);
+        setDocItems([]);
         setAnswer(null);
         alert("All documents cleared");
       } catch (error) {
@@ -89,7 +105,7 @@ function App() {
   };
   React.useEffect(() => {
     fetchDocuments();
-  }, []);
+  }, [token]);
   return (
     <div className="App">
       <header>
@@ -98,6 +114,8 @@ function App() {
       </header>
 
       <div className="container">
+        {!token ? <div className="section"><h2>Sign in or register</h2><input placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} /><input type="password" placeholder="Password (8+ characters)" value={password} onChange={e => setPassword(e.target.value)} /><button onClick={() => authenticate(false)}>Log in</button><button onClick={() => authenticate(true)}>Register</button></div> : <div className="section"><button onClick={() => { sessionStorage.removeItem("rag_token"); setToken(""); setDocuments([]); }}>Log out</button><button onClick={fetchDocuments}>Refresh document status</button></div>}
+        {token && <>
         {/* ===== UPLOAD SECTION ===== */}
         <div className="section upload-section">
           <h2>1. Upload PDF</h2>
@@ -111,7 +129,7 @@ function App() {
               <h3>Uploaded Documents ({documents.length})</h3>
               <ul>
                 {documents.map((doc, idx) => (
-                  <li key={idx}>📄 {doc}</li>
+                  <li key={idx}>📄 {doc} — {docItems[idx]?.status || "unknown"}</li>
                 ))}
               </ul>
               <button onClick={handleClear} className="clear-btn">
@@ -144,7 +162,7 @@ function App() {
 
           <button
             onClick={handleAsk}
-            disabled={loading || documents.length === 0}
+            disabled={loading || !docItems.some(d => d.status === "ready")}
           >
             {loading ? "Thinking..." : "Ask Question"}
           </button>
@@ -166,6 +184,7 @@ function App() {
             </ul>
           </div>
         )}
+        </>}
       </div>
     </div>
   );
