@@ -34,9 +34,6 @@ def initialize():
 def create_document(owner, filename, policy_key=None, version_label=None, effective_date=None):
     doc_id = str(uuid.uuid4())
     with connect() as conn:
-        if policy_key:
-            conn.execute("UPDATE documents SET is_current=FALSE WHERE owner_id=%s AND policy_key=%s",
-                         (owner, policy_key))
         conn.execute("""INSERT INTO documents(id,owner_id,filename,policy_key,version_label,effective_date)
                         VALUES(%s,%s,%s,%s,%s,%s)""",
                      (doc_id, owner, filename, policy_key, version_label, effective_date))
@@ -44,6 +41,13 @@ def create_document(owner, filename, policy_key=None, version_label=None, effect
 
 def set_status(doc_id, owner, status, error=None):
     with connect() as conn:
+        if status == "ready":
+            row = conn.execute("SELECT policy_key FROM documents WHERE id=%s AND owner_id=%s",
+                               (doc_id, owner)).fetchone()
+            if row and row["policy_key"]:
+                conn.execute("""UPDATE documents SET is_current=FALSE
+                    WHERE owner_id=%s AND policy_key=%s AND id<>%s""",
+                    (owner, row["policy_key"], doc_id))
         conn.execute("UPDATE documents SET status=%s,error=%s WHERE id=%s AND owner_id=%s",
                      (status, error, doc_id, owner))
 
