@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import axios from "axios";
 import "./App.css";
 
-const API_URL = "http://localhost:8000";
+const API_URL = process.env.REACT_APP_API_URL || "http://localhost:8000";
 
 function App() {
   const [file, setFile] = useState(null);
@@ -24,7 +24,10 @@ function App() {
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [useTools, setUseTools] = useState(false);
+  const [policyKey, setPolicyKey] = useState("");
+  const [version, setVersion] = useState("");
+  const [effectiveDate, setEffectiveDate] = useState("");
+  const [includeSuperseded, setIncludeSuperseded] = useState(false);
   const [documents, setDocuments] = useState([]);
 
   const handleFileChange = (e) => {
@@ -39,6 +42,9 @@ function App() {
 
     const formData = new FormData();
     formData.append("file", file);
+    if (policyKey.trim()) formData.append("policy_key", policyKey.trim());
+    if (version.trim()) formData.append("version_label", version.trim());
+    if (effectiveDate) formData.append("effective_date", effectiveDate);
 
     setUploading(true);
     try {
@@ -69,7 +75,7 @@ function App() {
     try {
       const response = await axios.post(`${API_URL}/ask`, {
         question: question,
-        use_tools: useTools,
+        include_superseded: includeSuperseded,
       }, { headers: authHeaders });
 
       setAnswer(response.data);
@@ -120,6 +126,9 @@ function App() {
         <div className="section upload-section">
           <h2>1. Upload PDF</h2>
           <input type="file" accept=".pdf" onChange={handleFileChange} />
+          <input placeholder="Policy key (same key groups versions)" value={policyKey} onChange={e => setPolicyKey(e.target.value)} />
+          <input placeholder="Version label (e.g. v2)" value={version} onChange={e => setVersion(e.target.value)} />
+          <label>Effective date <input type="date" value={effectiveDate} onChange={e => setEffectiveDate(e.target.value)} /></label>
           <button onClick={handleUpload} disabled={uploading || !file}>
             {uploading ? "Uploading..." : "Upload"}
           </button>
@@ -129,7 +138,7 @@ function App() {
               <h3>Uploaded Documents ({documents.length})</h3>
               <ul>
                 {documents.map((doc, idx) => (
-                  <li key={idx}>📄 {doc} — {docItems[idx]?.status || "unknown"}</li>
+                  <li key={idx}>📄 {doc} — {docItems[idx]?.status || "unknown"} {docItems[idx]?.version_label && `· ${docItems[idx].version_label}`} {docItems[idx]?.policy_key && `· ${docItems[idx].policy_key}`} {docItems[idx]?.is_current === false && "· Superseded"}</li>
                 ))}
               </ul>
               <button onClick={handleClear} className="clear-btn">
@@ -153,10 +162,10 @@ function App() {
             <label>
               <input
                 type="checkbox"
-                checked={useTools}
-                onChange={(e) => setUseTools(e.target.checked)}
+                checked={includeSuperseded}
+                onChange={(e) => setIncludeSuperseded(e.target.checked)}
               />
-              Enable Tools (Calculator, etc.)
+              Include superseded document versions (for historical comparison)
             </label>
           </div>
 
@@ -178,8 +187,10 @@ function App() {
 
             <h3>Sources</h3>
             <ul className="sources">
-              {answer.sources.map((source, idx) => (
-                <li key={idx}>{source}</li>
+              {(answer.citations || []).map((source, idx) => (
+                <li key={idx}><strong>[{source.index}] {source.document} · page {source.page}</strong>
+                {source.version && ` · ${source.version}`} {source.is_current === false && " · Superseded"}
+                <details><summary>View retrieved passage</summary><pre style={{whiteSpace:"pre-wrap"}}>{source.passage}</pre></details></li>
               ))}
             </ul>
           </div>
