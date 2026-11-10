@@ -3,7 +3,7 @@ import os
 import tempfile
 from pathlib import Path
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, BackgroundTasks
+from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, BackgroundTasks, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from auth import register, login, current_user
@@ -34,6 +34,7 @@ class QuestionRequest(BaseModel):
     question: str = Field(min_length=1, max_length=2000)
     history: list[str] = Field(default_factory=list, max_length=10)
     use_tools: bool = False
+    include_superseded: bool = False
 
 @app.get("/")
 def root():
@@ -49,6 +50,8 @@ def signin(body: Credentials):
 
 @app.post("/upload", status_code=202)
 async def upload_pdf(background: BackgroundTasks, file: UploadFile = File(...),
+                     policy_key: str | None = Form(None), version_label: str | None = Form(None),
+                     effective_date: str | None = Form(None),
                      owner: str = Depends(current_user)):
     if not file.filename or Path(file.filename).suffix.lower() != ".pdf":
         raise HTTPException(400, "Only PDF files allowed")
@@ -61,7 +64,13 @@ async def upload_pdf(background: BackgroundTasks, file: UploadFile = File(...),
         temp.write(content)
         path = temp.name
     try:
-        doc_id = create_document(owner, Path(file.filename).name)
+        from datetime import date
+        try:
+            effective = date.fromisoformat(effective_date) if effective_date else None
+        except ValueError:
+            raise HTTPException(422, "effective_date must be YYYY-MM-DD")
+        doc_id = create_document(owner, Path(file.filename).name, policy_key.strip() if policy_key else None,
+                                 version_label.strip() if version_label else None, effective)
         background.add_task(engine().ingest, doc_id, owner, path)
     except Exception:
         os.remove(path)
@@ -79,7 +88,7 @@ def ask(body: QuestionRequest, owner: str = Depends(current_user)):
         raise HTTPException(400, "Tool execution is disabled for grounded document answers")
     if not any(row["status"] == "ready" for row in list_documents(owner)):
         raise HTTPException(400, "No processed documents available yet")
-    return engine().query(owner, body.question, body.history)
+    return engine().query(owner, body.question, body.history, body.include_superseded)
 
 @app.delete("/clear")
 def clear(owner: str = Depends(current_user)):
