@@ -8,6 +8,7 @@ import re
 from decimal import Decimal, InvalidOperation
 
 from version_compare import compare_versions
+from claim_verification import verify_interpretation
 
 MAX_GROUPS = 30
 MAX_CHARS = 1800
@@ -57,6 +58,7 @@ def analyze_policy_changes(old, new, llm, max_groups=MAX_GROUPS):
             "numeric_change": _numeric_change(before, after) if group["type"] == "modified" else None,
             "interpretation": None,
             "review_required": True,
+            "verification": {"status": "unverified", "claims": {}, "review_required": True},
         }
         if not before and not after:
             results.append(record)
@@ -83,6 +85,7 @@ def analyze_policy_changes(old, new, llm, max_groups=MAX_GROUPS):
                 "impact": str(response.get("impact", ""))[:200],
                 "uncertainty": str(response.get("uncertainty", ""))[:200],
             }
+            record["verification"] = verify_interpretation(before, after, record["interpretation"], llm)
         except (ValueError, TypeError, KeyError, AttributeError, json.JSONDecodeError) as exc:
             record["interpretation_error"] = type(exc).__name__
         results.append(record)
