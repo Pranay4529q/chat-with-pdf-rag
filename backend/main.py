@@ -1,7 +1,9 @@
 """Authenticated document API with background PDF ingestion."""
 import os
 import tempfile
+from dotenv import load_dotenv
 from pathlib import Path
+load_dotenv(Path(__file__).resolve().parent / ".env", override=True)
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, BackgroundTasks, Form
 from fastapi.middleware.cors import CORSMiddleware
