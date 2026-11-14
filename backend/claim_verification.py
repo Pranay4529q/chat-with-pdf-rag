@@ -17,7 +17,7 @@ def _parse(raw):
     return json.loads(text)
 
 
-def verify_interpretation(before, after, interpretation, llm):
+def verify_interpretation(before, after, interpretation, llm, context_before="", context_after=""):
     """Return per-field evidence judgments; never treat LLM output as proof."""
     claims = {key: str(interpretation.get(key) or "")[:200] for key in FIELDS}
     result = {
@@ -40,7 +40,9 @@ def verify_interpretation(before, after, interpretation, llm):
         "supported, unsupported, uncertain. Reason under 180 characters. "
         "Use uncertain when evidence is ambiguous; unsupported when the claim "
         "asserts an implication not warranted by evidence.\n"
-        + json.dumps({"before": before, "after": after, "claims": claims}, ensure_ascii=False)
+        + json.dumps({"before": before, "after": after,
+                      "context_before": context_before[:700], "context_after": context_after[:700],
+                      "claims": claims}, ensure_ascii=False)
     )
     try:
         verdicts = _parse(llm.invoke(prompt).content)
