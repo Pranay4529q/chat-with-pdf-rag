@@ -1,7 +1,9 @@
 """Authenticated document API with background PDF ingestion."""
 import os
 import tempfile
+from dotenv import load_dotenv
 from pathlib import Path
+load_dotenv(Path(__file__).resolve().parent / ".env", override=True)
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, BackgroundTasks, Form
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,6 +12,7 @@ from auth import register, login, current_user
 from storage import initialize, create_document, list_documents, delete_documents, get_document_pages
 from rag_engine import RAGEngine
 from version_compare import compare_versions
+from semantic_compare import analyze_policy_changes
 
 @asynccontextmanager
 async def lifespan(app):
@@ -108,6 +111,20 @@ def compare_documents(body: CompareRequest, owner: str = Depends(current_user)):
     if body.old_document_id == body.new_document_id:
         raise HTTPException(400, "Select two different documents")
     return compare_versions(old, new)
+
+@app.post("/documents/compare/semantic")
+def compare_documents_semantic(body: CompareRequest, owner: str = Depends(current_user)):
+    old = get_document_pages(owner, body.old_document_id)
+    new = get_document_pages(owner, body.new_document_id)
+    if not old or not new:
+        raise HTTPException(404, "Document not found")
+    if body.old_document_id == body.new_document_id:
+        raise HTTPException(400, "Select two different documents")
+    if old["document"]["status"] != "ready" or new["document"]["status"] != "ready":
+        raise HTTPException(409, "Both documents must finish processing")
+    if not old["document"]["policy_key"] or old["document"]["policy_key"] != new["document"]["policy_key"]:
+        raise HTTPException(400, "Select two versions of the same policy key")
+    return analyze_policy_changes(old, new, engine().llm)
 
 @app.delete("/clear")
 def clear(owner: str = Depends(current_user)):
