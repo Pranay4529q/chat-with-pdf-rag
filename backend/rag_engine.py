@@ -10,7 +10,7 @@ from storage import save_chunks, set_status, search
 class RAGEngine:
     def __init__(self):
         self.embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-        self.llm = ChatGroq(model="llama-3.1-8b-instant", temperature=0, api_key=os.getenv("GROQ_API_KEY"))
+        self.llm = ChatGroq(model=os.getenv("GROQ_MODEL", "openai/gpt-oss-20b"), temperature=0, api_key=os.getenv("GROQ_API_KEY"))
         self.splitter = RecursiveCharacterTextSplitter(
             chunk_size=1000, chunk_overlap=200, separators=["\n\n", "\n", ". ", " ", ""])
         self.reranker = None
