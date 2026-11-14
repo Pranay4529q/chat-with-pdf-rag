@@ -33,10 +33,13 @@ function App() {
   const [newId, setNewId] = useState("");
   const [comparison, setComparison] = useState(null);
   const [comparing, setComparing] = useState(false);
+  const [semantic, setSemantic] = useState(null);
+  const [analyzing, setAnalyzing] = useState(false);
   const [compareError, setCompareError] = useState("");
   const compare = async () => {
     setCompareError("");
     setComparison(null);
+    setSemantic(null);
     if (!oldId || !newId || oldId === newId) {
       setCompareError("Choose two different processed versions.");
       return;
@@ -50,6 +53,25 @@ function App() {
       setCompareError(err.response?.data?.detail || "Comparison failed");
     } finally {
       setComparing(false);
+    }
+  };
+
+  const analyzeChanges = async () => {
+    setCompareError("");
+    setSemantic(null);
+    if (!oldId || !newId || oldId === newId) {
+      setCompareError("Choose two different processed versions.");
+      return;
+    }
+    setAnalyzing(true);
+    try {
+      const result = await axios.post(`${API_URL}/documents/compare/semantic`,
+        { old_document_id: oldId, new_document_id: newId }, { headers: authHeaders });
+      setSemantic(result.data);
+    } catch (err) {
+      setCompareError(err.response?.data?.detail || "Semantic analysis failed; check the backend logs.");
+    } finally {
+      setAnalyzing(false);
     }
   };
 
@@ -189,6 +211,7 @@ function App() {
             </select>
           </label>
           <button onClick={compare} disabled={comparing || !oldId || !newId}>{comparing ? "Comparing..." : "Compare versions"}</button>
+          <button onClick={analyzeChanges} disabled={analyzing || comparing || !oldId || !newId}>{analyzing ? "Analyzing..." : "Analyze policy impact (AI)"}</button>
           {compareError && <p role="alert">{compareError}</p>}
           {comparison && <div aria-live="polite">
             <h3>{comparison.change_count} change groups</h3>
@@ -207,6 +230,27 @@ function App() {
             {comparison.truncated && <p>Results truncated. Narrow the documents for detailed review.</p>}
           </div>}
         </div>
+        {semantic && <div className="section" aria-live="polite">
+          <h2>AI policy impact analysis</h2>
+          <p>{semantic.method}</p>
+          <p>{semantic.change_count} groups analyzed. Interpretations require human review.</p>
+          {semantic.changes.map((change, idx) => <div key={idx} className="comparison-change">
+            <h3>Change {change.group} — {change.type}</h3>
+            {change.interpretation ? <>
+              <p><strong>{change.interpretation.category}</strong>: {change.interpretation.summary}</p>
+              <p><strong>Potential impact:</strong> {change.interpretation.impact}</p>
+              {change.interpretation.uncertainty && <p><strong>Uncertainty:</strong> {change.interpretation.uncertainty}</p>}
+            </> : <p>Interpretation unavailable; inspect evidence below.</p>}
+            {change.numeric_change && <p><strong>INR change:</strong> {change.numeric_change.delta_inr}; percentage: {change.numeric_change.percent_change === null ? "N/A" : change.numeric_change.percent_change + "%"}</p>}
+            <details><summary>Review exact evidence and page numbers</summary>
+              <strong>Before</strong>
+              {change.before.map((line, i) => <p key={i}>Page {line.page}: {line.text}</p>)}
+              <strong>After</strong>
+              {change.after.map((line, i) => <p key={i}>Page {line.page}: {line.text}</p>)}
+            </details>
+          </div>)}
+          {semantic.truncated && <p>Analysis truncated to protect latency and API usage.</p>}
+        </div>}
         {/* ===== QUESTION SECTION ===== */}
         <div className="section question-section">
           <h2>3. Ask Questions</h2>
