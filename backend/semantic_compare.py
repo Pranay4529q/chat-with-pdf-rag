@@ -63,7 +63,7 @@ def _surrounding_context(document, evidence, max_chars=700):
             end = min(len(normalized), position + len(needle) + 180)
             parts.append(f"Page {page}: {normalized[start:end]}")
             break
-    return "\\n".join(parts)[:max_chars]
+    return "\n".join(parts)[:max_chars]
 
 
 def analyze_policy_changes(old, new, llm, max_groups=MAX_GROUPS):
