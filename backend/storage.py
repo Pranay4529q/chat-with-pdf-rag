@@ -96,3 +96,15 @@ def search(owner, query, embedding, limit=20, include_superseded=False):
         WHERE dense.id IS NOT NULL OR lexical.id IS NOT NULL
         ORDER BY score DESC LIMIT %s""",
         (owner, owner, include_superseded, vector, vector, query, query, query, limit)).fetchall()
+
+def get_document_pages(owner, document_id):
+    """Return authorized ready document and its ordered page chunks."""
+    with connect() as conn:
+        doc = conn.execute("""SELECT id,filename,status,policy_key,version_label,effective_date,is_current
+            FROM documents WHERE id=%s AND owner_id=%s""", (document_id, owner)).fetchone()
+        if not doc:
+            return None
+        pages = conn.execute("""SELECT page,content FROM chunks
+            WHERE document_id=%s AND owner_id=%s ORDER BY page,id""",
+            (document_id, owner)).fetchall()
+    return {"document": doc, "chunks": pages}
