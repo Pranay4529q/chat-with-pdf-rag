@@ -42,6 +42,30 @@ def _parse_json(raw):
     return json.loads(text)
 
 
+def _surrounding_context(document, evidence, max_chars=700):
+    """Nearby source text for interpretation only; original diff evidence stays intact."""
+    if not evidence:
+        return ""
+    parts = []
+    for item in evidence[:3]:
+        page = int(item["page"])
+        needle = item["text"]
+        for chunk in document["chunks"]:
+            if int(chunk["page"]) != page:
+                continue
+            source = chunk["content"]
+            # Normalize whitespace to match diff's normalized lines.
+            normalized = " ".join(source.split())
+            position = normalized.casefold().find(needle.casefold())
+            if position < 0:
+                continue
+            start = max(0, position - 250)
+            end = min(len(normalized), position + len(needle) + 180)
+            parts.append(f"Page {page}: {normalized[start:end]}")
+            break
+    return "\\n".join(parts)[:max_chars]
+
+
 def analyze_policy_changes(old, new, llm, max_groups=MAX_GROUPS):
     diff = compare_versions(old, new, max_changes=101)
     changes = diff["changes"]
@@ -50,11 +74,15 @@ def analyze_policy_changes(old, new, llm, max_groups=MAX_GROUPS):
     for idx, group in enumerate(selected):
         before = " ".join(item["text"] for item in group["before"])[:MAX_CHARS]
         after = " ".join(item["text"] for item in group["after"])[:MAX_CHARS]
+        before_context = _surrounding_context(old, group["before"])
+        after_context = _surrounding_context(new, group["after"])
         record = {
             "group": idx + 1,
             "type": group["type"],
             "before": group["before"],
             "after": group["after"],
+            "context_before": before_context,
+            "context_after": after_context,
             "numeric_change": _numeric_change(before, after) if group["type"] == "modified" else None,
             "interpretation": None,
             "review_required": True,
@@ -71,7 +99,7 @@ def analyze_policy_changes(old, new, llm, max_groups=MAX_GROUPS):
             "administrative, other. Keep summary and impact under 200 characters each. "
             "Describe only what follows from the quoted evidence; do not invent facts. "
             "If ambiguous, say so in uncertainty. No legal conclusions.\n"
-            + json.dumps({"before": before, "after": after}, ensure_ascii=False)
+            + json.dumps({"before": before, "after": after, "context_before": before_context, "context_after": after_context}, ensure_ascii=False)
         )
         try:
             response = _parse_json(llm.invoke(prompt).content)
@@ -85,7 +113,8 @@ def analyze_policy_changes(old, new, llm, max_groups=MAX_GROUPS):
                 "impact": str(response.get("impact", ""))[:200],
                 "uncertainty": str(response.get("uncertainty", ""))[:200],
             }
-            record["verification"] = verify_interpretation(before, after, record["interpretation"], llm)
+            record["verification"] = verify_interpretation(before, after, record["interpretation"], llm,
+                                                           context_before=before_context, context_after=after_context)
         except (ValueError, TypeError, KeyError, AttributeError, json.JSONDecodeError) as exc:
             record["interpretation_error"] = type(exc).__name__
         results.append(record)
