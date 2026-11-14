@@ -29,6 +29,29 @@ function App() {
   const [effectiveDate, setEffectiveDate] = useState("");
   const [includeSuperseded, setIncludeSuperseded] = useState(false);
   const [documents, setDocuments] = useState([]);
+  const [oldId, setOldId] = useState("");
+  const [newId, setNewId] = useState("");
+  const [comparison, setComparison] = useState(null);
+  const [comparing, setComparing] = useState(false);
+  const [compareError, setCompareError] = useState("");
+  const compare = async () => {
+    setCompareError("");
+    setComparison(null);
+    if (!oldId || !newId || oldId === newId) {
+      setCompareError("Choose two different processed versions.");
+      return;
+    }
+    setComparing(true);
+    try {
+      const result = await axios.post(`${API_URL}/documents/compare`,
+        { old_document_id: oldId, new_document_id: newId }, { headers: authHeaders });
+      setComparison(result.data);
+    } catch (err) {
+      setCompareError(err.response?.data?.detail || "Comparison failed");
+    } finally {
+      setComparing(false);
+    }
+  };
 
   const handleFileChange = (e) => {
     setFile(e.target.files[0]);
@@ -148,9 +171,45 @@ function App() {
           )}
         </div>
 
+        <div className="section">
+          <h2>2. Compare policy versions</h2>
+          <p>Choose two ready documents with the same policy key. This shows textual changes with source pages; it does not determine legal or semantic conflicts.</p>
+          <label>Earlier version
+            <select aria-label="Earlier version" value={oldId} onChange={e => setOldId(e.target.value)}>
+              <option value="">Select a document</option>
+              {docItems.filter(d => d.status === "ready" && d.policy_key).map(d =>
+                <option key={d.id} value={d.id}>{d.filename} ({d.version_label || "unlabeled"})</option>)}
+            </select>
+          </label>
+          <label>Later version
+            <select aria-label="Later version" value={newId} onChange={e => setNewId(e.target.value)}>
+              <option value="">Select a document</option>
+              {docItems.filter(d => d.status === "ready" && d.policy_key).map(d =>
+                <option key={d.id} value={d.id}>{d.filename} ({d.version_label || "unlabeled"})</option>)}
+            </select>
+          </label>
+          <button onClick={compare} disabled={comparing || !oldId || !newId}>{comparing ? "Comparing..." : "Compare versions"}</button>
+          {compareError && <p role="alert">{compareError}</p>}
+          {comparison && <div aria-live="polite">
+            <h3>{comparison.change_count} change groups</h3>
+            <p>{comparison.method}</p>
+            {comparison.changes.length === 0 && <p>No textual changes detected.</p>}
+            {comparison.changes.map((change, idx) =>
+              <div key={idx} className="comparison-change">
+                <h4>{change.type}</h4>
+                <div><strong>Before</strong>
+                  {change.before.map((line, i) => <p key={i}>Page {line.page}: {line.text}</p>)}
+                </div>
+                <div><strong>After</strong>
+                  {change.after.map((line, i) => <p key={i}>Page {line.page}: {line.text}</p>)}
+                </div>
+              </div>)}
+            {comparison.truncated && <p>Results truncated. Narrow the documents for detailed review.</p>}
+          </div>}
+        </div>
         {/* ===== QUESTION SECTION ===== */}
         <div className="section question-section">
-          <h2>2. Ask Questions</h2>
+          <h2>3. Ask Questions</h2>
           <textarea
             placeholder="What is this document about?"
             value={question}

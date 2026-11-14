@@ -7,8 +7,9 @@ from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, Backgroun
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from auth import register, login, current_user
-from storage import initialize, create_document, list_documents, delete_documents
+from storage import initialize, create_document, list_documents, delete_documents, get_document_pages
 from rag_engine import RAGEngine
+from version_compare import compare_versions
 
 @asynccontextmanager
 async def lifespan(app):
@@ -89,6 +90,24 @@ def ask(body: QuestionRequest, owner: str = Depends(current_user)):
     if not any(row["status"] == "ready" for row in list_documents(owner)):
         raise HTTPException(400, "No processed documents available yet")
     return engine().query(owner, body.question, body.history, body.include_superseded)
+
+class CompareRequest(BaseModel):
+    old_document_id: str
+    new_document_id: str
+
+@app.post("/documents/compare")
+def compare_documents(body: CompareRequest, owner: str = Depends(current_user)):
+    old = get_document_pages(owner, body.old_document_id)
+    new = get_document_pages(owner, body.new_document_id)
+    if not old or not new:
+        raise HTTPException(404, "Document not found")
+    if old["document"]["status"] != "ready" or new["document"]["status"] != "ready":
+        raise HTTPException(409, "Both documents must finish processing")
+    if not old["document"]["policy_key"] or old["document"]["policy_key"] != new["document"]["policy_key"]:
+        raise HTTPException(400, "Select two versions of the same policy key")
+    if body.old_document_id == body.new_document_id:
+        raise HTTPException(400, "Select two different documents")
+    return compare_versions(old, new)
 
 @app.delete("/clear")
 def clear(owner: str = Depends(current_user)):
