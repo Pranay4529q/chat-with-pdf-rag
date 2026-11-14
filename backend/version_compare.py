@@ -12,7 +12,7 @@ def normalize_lines(chunks):
         # Chunk overlap can duplicate text; compare per-page lines with deduplication.
         seen = set()
         for text in texts:
-            for raw in re.split(r"(?<=[.!?])\\s+|\\n+", text):
+            for raw in re.split(r"(?<=[.!?])\s+|\n+", text):
                 line = " ".join(raw.split()).strip()
                 if len(line) < 12 or line.casefold() in seen:
                     continue
