@@ -240,6 +240,9 @@ function App() {
               <p><strong>{change.interpretation.category}</strong>: {change.interpretation.summary}</p>
               <p><strong>Potential impact:</strong> {change.interpretation.impact}</p>
               {change.interpretation.uncertainty && <p><strong>Uncertainty:</strong> {change.interpretation.uncertainty}</p>}
+              <p><strong>Evidence verification:</strong> {change.verification?.status || "unverified"} (AI assessment; human review required)</p>
+              {Object.entries(change.verification?.claims || {}).map(([field, verdict]) =>
+                <p key={field}><strong>{field}:</strong> {verdict.status} — {verdict.reason}</p>)}
             </> : <p>Interpretation unavailable; inspect evidence below.</p>}
             {change.numeric_change && <p><strong>INR change:</strong> {change.numeric_change.delta_inr}; percentage: {change.numeric_change.percent_change === null ? "N/A" : change.numeric_change.percent_change + "%"}</p>}
             <details><summary>Review exact evidence and page numbers</summary>
