@@ -237,12 +237,22 @@ function App() {
           {semantic.changes.map((change, idx) => <div key={idx} className="comparison-change">
             <h3>Change {change.group} — {change.type}</h3>
             {change.interpretation ? <>
-              <p><strong>{change.interpretation.category}</strong>: {change.interpretation.summary}</p>
-              <p><strong>Potential impact:</strong> {change.interpretation.impact}</p>
-              {change.interpretation.uncertainty && <p><strong>Uncertainty:</strong> {change.interpretation.uncertainty}</p>}
               <p><strong>Evidence verification:</strong> {change.verification?.status || "unverified"} (AI assessment; human review required)</p>
-              {Object.entries(change.verification?.claims || {}).map(([field, verdict]) =>
-                <p key={field}><strong>{field}:</strong> {verdict.status} — {verdict.reason}</p>)}
+              {["summary", "impact"].map(field => {
+                const verdict = change.verification?.claims?.[field];
+                const status = verdict?.status || "unverified";
+                const claim = change.interpretation[field];
+                return <div key={field}>
+                  <p><strong>{field === "summary" ? "Change summary" : "Potential impact"}:</strong>{" "}
+                    {status === "supported" ? claim : <em>Withheld pending human review ({status}).</em>}
+                  </p>
+                  {status !== "supported" && <p role="alert"><strong>Review warning:</strong> {verdict?.reason || "No reliable verification result."}</p>}
+                  {status !== "supported" && <details><summary>Show flagged AI claim (not verified)</summary>
+                    <p>{claim || "No claim supplied."}</p>
+                  </details>}
+                </div>;
+              })}
+              {change.interpretation.uncertainty && <p><strong>AI uncertainty:</strong> {change.interpretation.uncertainty}</p>}
             </> : <p>Interpretation unavailable; inspect evidence below.</p>}
             {change.numeric_change && <p><strong>INR change:</strong> {change.numeric_change.delta_inr}; percentage: {change.numeric_change.percent_change === null ? "N/A" : change.numeric_change.percent_change + "%"}</p>}
             <details><summary>Review exact evidence and page numbers</summary>
@@ -250,6 +260,10 @@ function App() {
               {change.before.map((line, i) => <p key={i}>Page {line.page}: {line.text}</p>)}
               <strong>After</strong>
               {change.after.map((line, i) => <p key={i}>Page {line.page}: {line.text}</p>)}
+              {(change.context_before || change.context_after) && <details><summary>Nearby context used by AI (not part of exact diff)</summary>
+                {change.context_before && <p><strong>Before context:</strong> {change.context_before}</p>}
+                {change.context_after && <p><strong>After context:</strong> {change.context_after}</p>}
+              </details>}
             </details>
           </div>)}
           {semantic.truncated && <p>Analysis truncated to protect latency and API usage.</p>}
