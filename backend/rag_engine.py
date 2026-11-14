@@ -64,7 +64,9 @@ class RAGEngine:
                   f"Excerpts:\n{context}\n\nQuestion: {question}")
         answer = self.llm.invoke(prompt).content
         citations = [{"index": i, "document": row["filename"], "page": row["page"],
-                      "passage": row["content"][:1200]} for i, row in enumerate(rows, 1)]
+                      "passage": row["content"][:1200], "version": row.get("version_label"),
+                      "is_current": row.get("is_current"),
+                      "effective_date": str(row["effective_date"]) if row.get("effective_date") else None} for i, row in enumerate(rows, 1)]
         # The model's citations are references to retrieved passages, not independently verified proof.
         return {"answer": answer, "sources": [f"{c['document']} (page {c['page']})" for c in citations],
                 "citations": citations}
